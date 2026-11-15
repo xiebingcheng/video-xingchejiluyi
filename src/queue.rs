@@ -147,6 +147,16 @@ pub fn spawn_batch(
         let desired = Arc::new(AtomicUsize::new(spec.jobs.max(1)));
         let stop_sampler = Arc::new(AtomicBool::new(false));
 
+        // GPU 调速线程：把 GPU 平均占用限制在上限（默认 95%）以内，
+        // 避免长时间 100% 满载。与并发数无关，始终生效。
+        let mut governor = None;
+        if caps.nvidia_smi {
+            let caps2 = caps.clone();
+            let stop2 = stop_sampler.clone();
+            let tx2 = tx.clone();
+            governor = Some(crate::throttle::spawn_governor(caps2, stop2, tx2));
+        }
+
         // GPU 占用采样线程（自动模式）：每 5 秒采样一次，动态增减并发。
         // 用户在游戏等高负载时图形占用高 → 降并发让资源给前台；GPU 空闲 → 提高并发。
         let mut sampler = None;
@@ -352,8 +362,12 @@ pub fn spawn_batch(
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
         stop_sampler.store(true, Ordering::Relaxed);
+        crate::throttle::resume_all(); // 兜底：确保没有 ffmpeg 被留在挂起状态
         if let Some(s) = sampler {
             let _ = s.join();
+        }
+        if let Some(g) = governor {
+            let _ = g.join();
         }
         let _ = tx.send(Ev::BatchDone {
             done: done.load(Ordering::Relaxed),

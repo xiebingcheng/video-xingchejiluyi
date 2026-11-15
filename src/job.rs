@@ -338,6 +338,9 @@ pub fn run(
         let mut child = cmd.spawn().context("启动 ffmpeg 失败")?;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
+        // GPU 调速器登记：批处理时限制 GPU 占用上限（Drop 时注销并确保恢复）
+        let mut child_opt: Option<Child> = Some(child);
+        let _gpu_guard = crate::throttle::Guard::register(child_opt.as_ref().unwrap());
 
         let stderr_tail: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
         {
@@ -358,7 +361,6 @@ pub fn run(
         // 进度读取（stdout 的 -progress 机器可读输出）
         let mut last_event = Instant::now() - Duration::from_secs(1);
         let mut last_output;
-        let mut child_opt: Option<Child> = Some(child);
         let mut status_code: Option<i32> = None;
 
         let mut reader = BufReader::new(stdout);

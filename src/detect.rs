@@ -104,18 +104,21 @@ impl Caps {
     }
 
     pub fn hardware_desc(&self) -> String {
-        let mut parts = Vec::new();
+        let mut parts: Vec<String> = Vec::new();
         if self.nvenc_h264 || self.nvenc_hevc {
-            parts.push("NVENC 硬件编码");
+            parts.push("NVENC 硬件编码".into());
         } else {
-            parts.push("软件编码（未检测到 NVENC）");
+            parts.push("软件编码（未检测到 NVENC）".into());
         }
         if self.vulkan_h264 || self.vulkan_hevc {
-            parts.push("Vulkan 解码+降噪+翻转全 GPU（CPU 近零占用）");
+            parts.push("Vulkan 解码+降噪+翻转全 GPU（CPU 近零占用）".into());
         } else if self.cuda_flip {
-            parts.push("GPU 翻转 + CPU 降噪");
+            parts.push("GPU 翻转 + CPU 降噪".into());
         } else {
-            parts.push("CPU 轻量翻转/降噪");
+            parts.push("CPU 轻量翻转/降噪".into());
+        }
+        if self.nvidia_smi {
+            parts.push("GPU 自动降载（防持续满载）".into());
         }
         parts.join(" + ")
     }
