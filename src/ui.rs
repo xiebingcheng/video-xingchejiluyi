@@ -479,6 +479,25 @@ impl App {
         });
     }
 
+    /// 在资源管理器中打开文件所在文件夹并选中（高亮）该文件。
+    fn reveal_in_explorer(&mut self, path: &std::path::Path) {
+        if !path.is_file() {
+            self.logs.push(format!("文件不存在，无法定位: {}", path.display()));
+            return;
+        }
+        // explorer 的 /select 参数不接受正斜杠，统一转成反斜杠
+        let win = path.to_string_lossy().replace('/', "\\");
+        // raw_arg 保证 `/select,"路径"` 原样进入命令行：常规 arg 在路径含空格时会把
+        // 整串再包一层引号，explorer 自己的参数解析处理不了；这里的引号护住路径本身
+        use std::os::windows::process::CommandExt;
+        if let Err(e) = std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{win}\""))
+            .spawn()
+        {
+            self.logs.push(format!("定位文件失败: {e}"));
+        }
+    }
+
     /// 在资源管理器中打开文件夹，供用户直接查看、整理其中的文件。
     /// 目录不存在时不自动创建，只记一条日志（打开一个错误的空窗口更容易让人困惑）。
     fn open_in_explorer(&mut self, dir: &str, what: &str) {
@@ -652,16 +671,30 @@ impl App {
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
                 .show(ui, |ui| {
+                    // 本帧内点击的文件：滚动区绘制完再统一在资源管理器中定位
+                    let mut reveal: Vec<PathBuf> = Vec::new();
                     for row in &mut self.rows {
+                        let path = row.entry.path.clone();
+                        let mut locate = false;
+                        let mut row_hovered = false;
                         ui.horizontal(|ui| {
+                            // 预占一个绘制位：悬停高亮垫在整行内容之下，行末再回填
+                            let hl = ui.painter().add(egui::Shape::Noop);
                             ui.checkbox(&mut row.entry.selected, "");
-                            // 缩略图
-                            if let Some(tex) = &row.thumb {
-                                ui.image((tex.id(), egui::vec2(96.0, 54.0)));
+                            let tip = format!(
+                                "{}\n点击在资源管理器中定位此文件",
+                                path.display()
+                            );
+                            // 缩略图（点击定位文件所在文件夹）
+                            let thumb_resp = if let Some(tex) = &row.thumb {
+                                ui.add(
+                                    egui::Image::new((tex.id(), egui::vec2(96.0, 54.0)))
+                                        .sense(egui::Sense::click()),
+                                )
                             } else {
-                                let (rect, _) = ui.allocate_exact_size(
+                                let (rect, resp) = ui.allocate_exact_size(
                                     egui::vec2(96.0, 54.0),
-                                    egui::Sense::hover(),
+                                    egui::Sense::click(),
                                 );
                                 if !row.thumb_done {
                                     ui.painter().rect_filled(
@@ -670,13 +703,21 @@ impl App {
                                         egui::Color32::from_gray(40),
                                     );
                                 }
+                                resp
+                            };
+                            if thumb_resp.clicked() {
+                                locate = true;
                             }
+                            row_hovered |= thumb_resp.hovered();
+                            thumb_resp
+                                .on_hover_text(tip.clone())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
                             ui.vertical(|ui| {
                                 // 给右侧状态列预留固定宽度，避免文件名挤占导致裁切；
                                 // 窗口很窄时允许文件名列收缩到最小宽度（自动截断）
                                 let name_w =
                                     (ui.available_width() - 230.0).max(60.0);
-                                ui.add_sized(
+                                let name_resp = ui.add_sized(
                                     [name_w, 14.0],
                                     egui::Label::new(
                                         egui::RichText::new(
@@ -684,12 +725,24 @@ impl App {
                                         )
                                         .strong(),
                                     )
-                                    .truncate(),
+                                    .truncate()
+                                    .sense(egui::Sense::click()),
                                 );
-                                ui.label(egui::RichText::new(format!(
-                                    "{:.0} MB",
-                                    row.entry.size as f64 / 1e6
-                                )).weak());
+                                let size_resp = ui.add(
+                                    egui::Label::new(egui::RichText::new(format!(
+                                        "{:.0} MB",
+                                        row.entry.size as f64 / 1e6
+                                    )).weak())
+                                    .sense(egui::Sense::click()),
+                                );
+                                for resp in [name_resp, size_resp] {
+                                    if resp.clicked() {
+                                        locate = true;
+                                    }
+                                    row_hovered |= resp.hovered();
+                                    resp.on_hover_text(tip.clone())
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                }
                             });
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -739,8 +792,25 @@ impl App {
                                     }
                                 },
                             );
+                            // 行末回填悬停高亮：垫在整行内容之下，指示整行可点击定位
+                            if row_hovered {
+                                ui.painter().set(
+                                    hl,
+                                    egui::Shape::rect_filled(
+                                        ui.min_rect().expand2(egui::vec2(2.0, 4.0)),
+                                        3.0,
+                                        ui.visuals().widgets.hovered.bg_fill,
+                                    ),
+                                );
+                            }
                         });
+                        if locate {
+                            reveal.push(path);
+                        }
                         ui.separator();
+                    }
+                    for p in &reveal {
+                        self.reveal_in_explorer(p);
                     }
                 });
         });
