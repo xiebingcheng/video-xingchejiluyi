@@ -1,0 +1,31 @@
+[package]
+name = "video-fixer"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "video_fixer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "video-fixer"
+path = "src/main.rs"
+
+[[bin]]
+name = "video-fixer-cli"
+path = "src/cli_main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+eframe = "0.37.0"
+image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
+rfd = "0.18.0"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.1"
+walkdir = "2.5.0"
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Console", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging", "Win32_System_Com"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
